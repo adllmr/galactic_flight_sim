@@ -1,0 +1,22 @@
+{
+  "name": "galactic-flight-simulator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Galactic Flight Simulator - mobile (PWA + Capacitor)",
+  "scripts": {
+    "serve": "npx --yes http-server www -p 8080 -c-1",
+    "icons": "npx @capacitor/assets generate --android --ios --iconBackgroundColor '#000040' --splashBackgroundColor '#000040' --iconBackgroundColorDark '#000040' --splashBackgroundColorDark '#000040'",
+    "sync": "npx cap sync",
+    "android": "npx cap sync android && npx cap open android",
+    "ios": "npx cap sync ios && npx cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/ios": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.0.0"
+  }
+}

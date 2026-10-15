@@ -1,0 +1,1363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000040">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Galactic Flight">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>Galactic Flight Simulator</title>
+<style>
+  :root {
+    --bg: #000040;
+    --sat: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+    --sab: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+    --sal: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+    --sar: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+    /* control sizes shrink on narrow phones so the two clusters never meet */
+    --ctl: clamp(54px, 18vw, 76px);
+    --thr-w: clamp(52px, 15vw, 64px);
+    --thr-h: clamp(150px, 28vh, 230px);
+  }
+  @media (orientation: landscape) and (max-height: 500px) {
+    :root { --ctl: clamp(54px, 17vh, 76px); --thr-w: clamp(48px, 14vh, 60px); --thr-h: clamp(120px, 52vh, 200px); }
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: var(--bg); color: white;
+    font-family: Courier, "Courier New", monospace;
+    overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  button { font-family: inherit; color: white; cursor: pointer; touch-action: manipulation; }
+  strong { color: cyan; }
+  a, a:visited { color: cyan; }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    position: fixed; z-index: 5;
+    top: calc(var(--sat) + 8px); left: calc(var(--sal) + 8px); right: calc(var(--sar) + 8px);
+    display: flex; justify-content: space-between; align-items: center;
+    pointer-events: none;
+  }
+  .topbar > * { pointer-events: auto; }
+  .topbar .title { font-size: 13px; opacity: .75; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  @media (max-width: 520px) { .topbar .title { visibility: hidden; } }
+  .topbar .group { display: flex; gap: 8px; }
+  .iconbtn {
+    width: 44px; height: 44px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.35); background: rgba(0,0,40,.6);
+    font-size: 19px; line-height: 1; display: grid; place-items: center; padding: 0;
+  }
+  .iconbtn:active { background: rgba(0,255,255,.25); }
+
+  /* ---------- flight controls ---------- */
+  .pad {
+    position: fixed; z-index: 5; display: flex; align-items: flex-end; gap: clamp(8px, 3vw, 14px);
+    bottom: calc(var(--sab) + 18px);
+  }
+  .pad.left  { left:  calc(var(--sal) + 16px); }
+  .pad.right { right: calc(var(--sar) + 16px); }
+  .ctl {
+    width: var(--ctl); height: var(--ctl); border-radius: 50%;
+    border: 2px solid rgba(255,255,255,.45); background: rgba(10,10,70,.78);
+    font-size: calc(var(--ctl) * .4); display: grid; place-items: center; padding: 0;
+    touch-action: none;
+  }
+  .ctl span { display: block; font-size: 10px; letter-spacing: .08em; margin-top: -4px; opacity: .8; }
+  .ctl.active { background: rgba(0,255,255,.28); border-color: cyan; }
+
+  /* throttle: drag up to fire, springs back to zero on release */
+  .throttle-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .throttle-read { font-size: 13px; color: orange; font-variant-numeric: tabular-nums; min-width: 5.5ch; text-align: center; background: rgba(0,0,40,.85); border-radius: 10px; padding: 2px 6px; }
+  .throttle {
+    position: relative; width: var(--thr-w); height: var(--thr-h);
+    border: 2px solid rgba(255,165,0,.75); border-radius: calc(var(--thr-w) / 2);
+    background: rgba(10,10,70,.78); overflow: hidden; touch-action: none; cursor: ns-resize;
+  }
+  .throttle .fill {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 0;
+    background: linear-gradient(to top, rgba(255,165,0,.75), rgba(255,90,0,.9));
+  }
+  .throttle .knob {
+    position: absolute; left: 4px; right: 4px; bottom: 4px; height: calc(var(--thr-w) - 12px);
+    border-radius: 50%; background: white; box-shadow: 0 0 0 2px rgba(0,0,40,.5);
+    transform: translateY(0);
+  }
+  .throttle .ticks { position: absolute; inset: 0; pointer-events: none; }
+  .throttle .ticks i { position: absolute; left: 0; right: 0; height: 1px; margin-bottom: -.5px;
+    background: linear-gradient(to right, rgba(255,255,255,.6) 0 16%, transparent 16% 84%, rgba(255,255,255,.6) 84%); }
+  .throttle .label {
+    position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+    writing-mode: vertical-rl; transform: rotate(180deg); font-size: 11px; letter-spacing: .25em; opacity: .7;
+  }
+  .throttle.release .fill, .throttle.release .knob { transition: height .18s ease-out, transform .18s ease-out; }
+  .throttle.active { border-color: orange; }
+  @media (prefers-reduced-motion: reduce) { .throttle.release .fill, .throttle.release .knob { transition: none; } }
+
+  /* ---------- settings sheet ---------- */
+  .sheet {
+    position: fixed; z-index: 8; left: 0; right: 0; bottom: 0;
+    max-height: 62vh; max-width: 560px; margin: 0 auto; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    background: rgba(0,0,40,.94); border-top: 1px solid rgba(0,255,255,.4);
+    border-radius: 16px 16px 0 0;
+    padding: 14px calc(var(--sar) + 18px) calc(var(--sab) + 18px) calc(var(--sal) + 18px);
+    transform: translateY(105%); transition: transform .25s ease;
+    touch-action: pan-y;
+  }
+  .sheet.open { transform: translateY(0); }
+  @media (orientation: landscape) and (max-height: 560px) {
+    .sheet {
+      left: auto; top: 0; width: min(380px, 60vw); max-height: none; border-radius: 0;
+      border-top: 0; border-left: 1px solid rgba(0,255,255,.4);
+      padding-top: calc(var(--sat) + 14px);
+      transform: translateX(105%);
+    }
+    .sheet.open { transform: translateX(0); }
+  }
+  .sheet header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .sheet h2 { font-size: 17px; margin: 0; color: cyan; }
+  .field { margin: 14px 0; }
+  .field .row { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px; }
+  .field .val { color: cyan; }
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 8px;
+    background: #ccc; outline: none; opacity: .9; border-radius: 4px; touch-action: pan-x;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 26px; height: 26px;
+    background: white; border-radius: 50%; border: 0;
+  }
+  input[type="range"]::-moz-range-thumb { width: 26px; height: 26px; background: white; border-radius: 50%; border: 0; }
+  .toggle { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; font-size: 15px; border-top: 1px solid rgba(255,255,255,.08); }
+  .toggle input { width: 22px; height: 22px; accent-color: cyan; }
+  .textbtn { background: transparent; border: 1px solid rgba(0,255,255,.6); border-radius: 22px; padding: 10px 16px; font-size: 14px; }
+
+  /* ---------- overlays ---------- */
+  .overlay {
+    position: fixed; inset: 0; z-index: 10; display: none;
+    background: rgba(0,0,64,.92); overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: calc(var(--sat) + 20px) calc(var(--sar) + 22px) calc(var(--sab) + 28px) calc(var(--sal) + 22px);
+    text-align: center; line-height: 1.35; touch-action: pan-y;
+  }
+  .overlay.show { display: block; }
+  .overlay .inner { max-width: 640px; margin: 0 auto; }
+  .overlay h1 { color: cyan; font-size: 24px; }
+  .overlay h2 { color: cyan; font-size: 18px; margin-top: 26px; }
+  .overlay p { font-size: 15px; }
+  .primary {
+    margin-top: 20px; background: cyan; color: #000040; border: 0; border-radius: 28px;
+    padding: 14px 34px; font-size: 17px; font-weight: bold;
+  }
+  /* ---------- start menu (Lagrange point picker) ---------- */
+  :root { --lp: #ff9be6; --stable: #6ee7a0; --unstable: #ff8a5c; }
+  .menu {
+    position: fixed; z-index: 7; left: 0; right: 0; bottom: 0;
+    max-height: 64vh; max-width: 560px; margin: 0 auto; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    background: rgba(0,0,40,.94); border-top: 1px solid rgba(0,255,255,.4); border-radius: 16px 16px 0 0;
+    padding: 16px calc(var(--sar) + 18px) calc(var(--sab) + 16px) calc(var(--sal) + 18px);
+    display: none; touch-action: pan-y;
+  }
+  .menu.show { display: block; }
+  @media (orientation: landscape) and (max-height: 560px) {
+    .menu {
+      left: auto; top: 0; width: min(400px, 56vw); max-height: none; margin: 0; border-radius: 0;
+      border-top: 0; border-left: 1px solid rgba(0,255,255,.4); padding-top: calc(var(--sat) + 14px);
+    }
+  }
+  body.menu-open .pad, body.menu-open .topbar { visibility: hidden; }
+  .menu h1 { color: cyan; font-size: 19px; margin: 0 0 4px; text-wrap: balance; }
+  .menu .intro { font-size: 13px; line-height: 1.4; margin: 0 0 12px; opacity: .85; }
+  @media (max-height: 640px) { .menu .intro { display: none; } }
+  .lp-list { display: grid; gap: 6px; }
+  .galaxy-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 6px 0 10px; border: 1px solid rgba(0,255,255,.5); border-radius: 20px; overflow: hidden; }
+  .galaxy-pick button { background: transparent; border: 0; padding: 8px 6px; font-size: 14px; }
+  .galaxy-pick button[aria-checked="true"] { background: cyan; color: #000040; font-weight: bold; }
+  .galaxy-pick button:focus-visible { outline: 2px solid white; outline-offset: -3px; }
+  /* settings that only apply to one galaxy */
+  body[data-galaxy="ell"] [data-for="bar"], body[data-galaxy="bar"] [data-for="ell"] { display: none; }
+  .lp {
+    display: grid; grid-template-columns: 2.6em 1fr auto; align-items: center; gap: 10px;
+    width: 100%; text-align: left; padding: 9px 12px; border-radius: 12px;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.18); font-size: 14px;
+  }
+  .lp[aria-checked="true"] { border-color: var(--lp); background: rgba(255,155,230,.14); }
+  .lp:focus-visible, .textbtn:focus-visible, .primary:focus-visible { outline: 2px solid cyan; outline-offset: 2px; }
+  .lp-name { font-size: 18px; font-weight: bold; color: var(--lp); }
+  .lp-desc { min-width: 0; }
+  .chip { font-size: 11px; letter-spacing: .06em; padding: 3px 8px; border-radius: 10px; border: 1px solid currentColor; white-space: nowrap; }
+  .chip.stable { color: var(--stable); }
+  .chip.unstable { color: var(--unstable); }
+  .lp-hint { font-size: 13px; line-height: 1.4; margin: 10px 2px 0; min-height: 2.8em; opacity: .9; }
+  /* launch row stays pinned to the bottom of the panel while the list scrolls */
+  .menu-actions {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    position: sticky; bottom: calc(-1 * (var(--sab) + 16px)); z-index: 1;
+    margin: 12px 0 calc(-1 * (var(--sab) + 16px)); padding: 10px 0 calc(var(--sab) + 16px);
+    background: rgb(0,0,40);
+  }
+  .menu-actions .primary { margin-top: 0; flex: 1 1 auto; }
+  .menu-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+  .menu-links .textbtn { padding: 8px 12px; font-size: 13px; }
+
+  .legend { display: inline-grid; grid-template-columns: auto auto; gap: 8px 14px; text-align: left; font-size: 15px; align-items: center; }
+  .legend .k { display: inline-grid; place-items: center; min-width: 38px; height: 38px; border-radius: 50%; border: 2px solid rgba(255,255,255,.5); font-size: 18px; }
+  .legend .k.o { border-color: orange; font-size: 18px; min-width: 30px; height: 52px; border-radius: 15px; }
+</style>
+</head>
+<body class="menu-open">
+  <canvas id="spaceCanvas"></canvas>
+
+  <div class="topbar">
+    <div class="title">Galactic Flight Simulator</div>
+    <div class="group">
+      <button class="iconbtn" id="resetBtn" aria-label="Return ship to its starting point">&#8634;</button>
+      <button class="iconbtn" id="settingsBtn" aria-label="Settings">&#9881;</button>
+      <button class="iconbtn" id="menuBtn" aria-label="Menu: starting point, help and physics">&#9776;</button>
+    </div>
+  </div>
+
+  <div class="pad left">
+    <button class="ctl" id="btnLeft" aria-label="Rotate anticlockwise">&#10226;</button>
+    <button class="ctl" id="btnRight" aria-label="Rotate clockwise">&#10227;</button>
+  </div>
+  <div class="pad right">
+    <div class="throttle-wrap">
+      <div class="throttle-read" id="throttleRead">0.0&times;</div>
+      <div class="throttle" id="throttle" role="slider" aria-label="Thrust" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0" tabindex="0">
+        <div class="fill" id="throttleFill"></div>
+        <div class="ticks" id="throttleTicks"><i data-mult="1"></i><i data-mult="2"></i><i data-mult="3"></i></div>
+        <div class="label">THRUST</div>
+        <div class="knob" id="throttleKnob"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sheet" id="settingsSheet" aria-hidden="true">
+    <header>
+      <h2>Settings</h2>
+      <button class="iconbtn" id="closeSettings" aria-label="Close settings">&#10005;</button>
+    </header>
+    <div class="field" data-for="ell">
+      <div class="row"><label for="qSlider">Axis ratio of the potential (<i>q</i>)</label><span class="val" id="qValue">0.85</span></div>
+      <input type="range" id="qSlider" min="0.71" max="1" step="0.01" value="0.85">
+    </div>
+    <div class="field" data-for="ell">
+      <div class="row"><label for="bhSlider">Central black hole (<i>GM</i> / <i>v</i><sub>0</sub><sup>2</sup><i>R</i><sub>c</sub>)</label><span class="val" id="bhValue">0.00</span></div>
+      <input type="range" id="bhSlider" min="0" max="1" step="0.01" value="0">
+    </div>
+    <div class="field" data-for="ell">
+      <div class="row"><label for="r0Slider">Starting radius (<i>R</i><sub>c</sub>)</label><span class="val" id="r0Value">3.6</span></div>
+      <input type="range" id="r0Slider" min="0.5" max="8" step="0.1" value="3.6">
+    </div>
+    <div class="field" data-for="bar">
+      <div class="row"><label for="curlyRSlider">Corotation radius / bar length (<span style="font-family:cursive">R</span>)</label><span class="val" id="curlyRValue">1.20</span></div>
+      <input type="range" id="curlyRSlider" min="1" max="2" step="0.001" value="1.20">
+    </div>
+    <div class="field" data-for="bar">
+      <div class="row"><label for="aSlider">Bar length (<i>a</i>)</label><span class="val" id="aValue">3.0</span></div>
+      <input type="range" id="aSlider" min="0.0001" max="8" step="0.01" value="3.0">
+    </div>
+    <div class="field" data-for="bar">
+      <div class="row"><label for="etaSlider">Deceleration <i>&eta;</i></label><span class="val" id="etaValue">0.000</span></div>
+      <input type="range" id="etaSlider" min="-0.1" max="0.1" step="0.001" value="0.000">
+    </div>
+    <div class="field">
+      <div class="row"><label for="speedSlider">Simulation speed</label><span class="val" id="speedValue">1.0</span></div>
+      <input type="range" id="speedSlider" min="0.1" max="10" step="0.1" value="1.0">
+    </div>
+    <div class="field">
+      <div class="row"><label for="projTimeSlider">Projected orbit length</label><span class="val" id="projTimeValue">5000</span></div>
+      <input type="range" id="projTimeSlider" min="100" max="20000" step="100" value="5000">
+    </div>
+    <label class="toggle" data-for="bar"><span>Rotating frame</span><input type="checkbox" id="frameCheckbox" checked></label>
+    <label class="toggle"><span style="color:cyan">Projected orbit</span><input type="checkbox" id="orbitCheckbox" checked></label>
+    <label class="toggle"><span style="color:yellow"><span data-for="bar">Effective p</span><span data-for="ell">P</span>otential contours</span><input type="checkbox" id="contourCheckbox" checked></label>
+    <label class="toggle"><span>Stars animation</span><input type="checkbox" id="starsCheckbox"></label>
+    <label class="toggle" data-for="bar"><span style="color:var(--lp)">Lagrange points</span><input type="checkbox" id="lpCheckbox" checked></label>
+    <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap">
+      <button class="textbtn" id="zoomResetBtn">Reset zoom</button>
+    </div>
+  </div>
+
+  <div class="menu show" id="startMenu" role="dialog" aria-labelledby="menuTitle">
+    <h1 id="menuTitle">Galactic Flight Simulator</h1>
+    <div class="galaxy-pick" role="radiogroup" aria-label="Galaxy">
+      <button role="radio" aria-checked="true" data-galaxy="bar">Barred spiral</button>
+      <button role="radio" aria-checked="false" data-galaxy="ell">Elliptical</button>
+    </div>
+    <p class="intro" id="menuIntro"></p>
+    <div class="lp-list" role="radiogroup" aria-label="Starting Lagrange point"></div>
+    <p class="lp-hint" id="lpHint"></p>
+    <div class="menu-links">
+      <button class="textbtn" id="menuHelp">How to play</button>
+      <button class="textbtn" id="menuAbout">The physics</button>
+      <button class="textbtn" id="menuSettings">Settings</button>
+    </div>
+    <div class="menu-actions">
+      <button class="primary" id="launchBtn">Launch from L<sub>5</sub></button>
+      <button class="textbtn" id="resumeBtn" hidden>Resume flight</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="instructionScreen">
+    <div class="inner">
+      <h1>Welcome to the <strong>Galactic Flight Simulator</strong>!</h1>
+      <p>Navigate the <strong>RSS <i>Lynden-Bell</i></strong> through the rotating barred potential.
+        <br><br>Start at one of the five Lagrange points, where the ship can sit still in the frame rotating with the bar. <i>L</i><sub>4</sub> and <i>L</i><sub>5</sub> are stable orbits at the corotation resonance; <i>L</i><sub>1</sub> and <i>L</i><sub>2</sub> won't hold you for long. Which other orbits can you reach?</p>
+      <h2>Controls</h2>
+      <div class="legend">
+        <span class="k">&#10226;</span><span>Rotate ship anticlockwise</span>
+        <span class="k">&#10227;</span><span>Rotate ship clockwise</span>
+        <span class="k o">&#8645;</span><span>Thrust slider: drag up to fire, higher for more power (up to 4&times; the original engine). Let go to cut the engine.</span>
+        <span class="k">&#8634;</span><span>Return ship to its starting point</span>
+        <span class="k">&#9881;</span><span>Bar, speed &amp; display settings</span>
+        <span class="k">&#9776;</span><span>Menu: choose a Lagrange point, help and physics</span>
+      </div>
+      <h2>Galaxies</h2>
+      <p>Pick a galaxy at the top of the menu: the rotating <strong>barred spiral</strong>, where you start at a Lagrange point, or a non-rotating <strong>elliptical</strong>, where you start on one of its classic orbits. Each has its own settings.</p>
+      <p>Pinch to zoom; double-tap the sky to reset the zoom.<br>
+        On a keyboard: arrow keys to fly (&uarr; = 1&times; thrust), <strong>Shift</strong> for fine thrust, <strong>[r]</strong> reset, <strong>[m]</strong> menu (then <strong>1</strong>&ndash;<strong>5</strong> to pick a point, <strong>Enter</strong> to launch), <strong>[i]</strong>/<strong>[j]</strong> help.</p>
+      <h2>Customisation</h2>
+      <p>Adjust the bar's pattern speed, length and deceleration rate, speed up the simulation, and change the length of the projected orbit.
+        <br><br>Toggle the rotating reference frame, projected orbit, effective potential contours, animated stars and the Lagrange point markers.</p>
+      <p>Beware of those Coriolis forces!</p>
+      <button class="primary" id="startBtn">Back</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="aboutScreen">
+    <div class="inner">
+      <h1>About</h1>
+      <h2>Gravitational potential</h2>
+      <p>The barred potential implemented is taken from equation (5) in <a href="https://academic.oup.com/mnras/article/469/4/4414/3828797" target="_blank" rel="noopener">Williams &amp; Evans (2017)</a>.
+        This is produced by convolving a cored axisymmetric logarithmic potential with a needle density along the <i>x</i>-axis spanning [&minus;<i>a</i>, <i>a</i>].
+        The bar length <i>a</i> is expressed in units of the core radius <i>R</i><sub>c</sub>.
+        The asymptotic circular speed of the logarithmic potential is <i>v</i><sub>0</sub> = 1.</p>
+      <h2>Rotation</h2>
+      <p>By default the simulator is run in a frame corotating clockwise with the bar. This adds Coriolis and centrifugal forces to the equations of motion.
+        The pattern speed is encoded in the ratio of the corotation radius to the bar length, <span style="font-family:cursive">R</span> = <i>R</i><sub>CR</sub>/<i>a</i>.
+        Optionally the pattern speed can be accelerated or decelerated with time. In this case the spaceship also experiences an Euler force.
+        The deceleration rate of the bar is quantified by the dimensionless deceleration parameter <i>&eta;</i> = <i>R&#775;</i><sub>CR</sub>/<i>v</i><sub>0</sub>.</p>
+      <h2>Lagrange points</h2>
+      <p>In the frame rotating with the bar, a ship at rest feels the bar's gravity and the centrifugal force. The Lagrange points are where these cancel: the stationary points of the effective potential &Phi;<sub>eff</sub> (the yellow contours).
+        <br><br><i>L</i><sub>1</sub> and <i>L</i><sub>2</sub> lie on the bar's long axis, a little beyond the corotation radius. They are saddle points of &Phi;<sub>eff</sub>, so a ship left there drifts away.
+        <br><br><i>L</i><sub>3</sub> is the centre, the lowest point of &Phi;<sub>eff</sub>. A nudged ship just oscillates about it.
+        <br><br><i>L</i><sub>4</sub> and <i>L</i><sub>5</sub> lie on the bar's short axis at exactly the corotation radius <i>R</i><sub>CR</sub>. They are peaks of &Phi;<sub>eff</sub>, yet stable: the Coriolis force turns a falling ship sideways into a banana-shaped orbit around the point.
+        <br><br>The simulator finds <i>L</i><sub>1</sub> and <i>L</i><sub>2</sub> numerically and judges each point's stability from the curvature of &Phi;<sub>eff</sub> and the pattern speed &Omega;, so both update when you change the bar. The labels follow the usual convention for barred galaxies.</p>
+      <h2>The elliptical galaxy</h2>
+      <p>The elliptical uses a flattened logarithmic potential, &Phi; = &frac12; <i>v</i><sub>0</sub><sup>2</sup> ln(<i>R</i><sub>c</sub><sup>2</sup> + <i>x</i><sup>2</sup> + <i>y</i><sup>2</sup>/<i>q</i><sup>2</sup>) (Binney &amp; Tremaine, <i>Galactic Dynamics</i>). It has a flat core and a flat rotation curve, like a galaxy embedded in a dark-matter halo. The axis ratio <i>q</i> of the potential can go down to 1/&radic;2 &asymp; 0.71; any flatter and the density it implies would be negative somewhere. The stars are roughly three times as flattened as the potential.
+        <br><br>The galaxy does not rotate, so there are no Coriolis or centrifugal forces and no Lagrange points. Instead you start on one of its orbit families: <strong>loop orbits</strong> circulate the centre, <strong>box orbits</strong> have no angular momentum and plunge through the centre, and orbits along the <strong>long</strong> and <strong>short axes</strong> oscillate through it. The orbit along the short axis is unstable.
+        <br><br>An optional central black hole, softened over 3 units, can be added. It scatters orbits that pass close to the centre, so box and axis orbits can turn chaotic.
+        <br><br>Each start is labelled stable or unstable by following it alongside a copy displaced by 0.001 units: regular orbits stay within about 0.1 units of each other, unstable ones separate by hundreds.</p>
+      <h2>The background</h2>
+      <p>The cyan line indicates the future orbit of the spaceship, if no thrust is applied.
+        <br><br>The yellow points indicate contours of the effective potential, including a centrifugal term.
+        <br><br>The animated stars (off by default) follow circular paths at approximately the circular speed of the background logarithmic potential.
+        <br><br>The radius at which the stars are stationary in the rotating frame indicates the corotation radius.</p>
+      <button class="primary" id="aboutClose">Back</button>
+    </div>
+  </div>
+
+<script id="physics">
+'use strict';
+/* =====================================================================
+   PHYSICS — same equations, units and integrator as the desktop version.
+   World coordinates: origin at the galaxy centre, y pointing down,
+   1 world unit = 1 desktop pixel (core radius Rc = 50).
+   This script has no DOM access: the page runs it, and the background
+   thread that computes the projected orbit runs a copy of the same text.
+   ===================================================================== */
+let gX = 0, gY = 0; // output of grav()
+const Rc = 50;      // potential core radius
+const v0 = 1;       // asymptotic circular speed
+const dt = 0.1;     // integrator step
+let galaxy = 'bar';
+let qEll = 0.85;          // axis ratio of the elliptical potential
+let muBH = 0;             // black hole GM in units of v0^2 Rc (0 = no black hole)
+const EPS_BH = 3;         // black hole softening length (world units)
+let curlyR = 1.2;         // corotation radius / bar length
+let aDot = 0;             // rate of change of bar length
+let rotatingFrame = true; // view in the frame rotating with the bar
+
+// gravitational force of the bar; result written to gX, gY (avoids allocations in hot loops)
+/* ---------- galaxy models ----------
+   'bar': rotating barred potential (Williams & Evans 2017), as on the desktop.
+   'ell': non-rotating elliptical galaxy, a flattened logarithmic potential
+          Phi = 1/2 v0^2 ln(Rc^2 + x^2 + y^2/q^2), with an optional softened central
+          black hole -GM / sqrt(r^2 + eps^2). The density is positive for q >= 1/sqrt(2). */
+
+function grav(dx, dy, a) {
+  if (galaxy === 'ell') {
+    const q2 = qEll * qEll;
+    const D = Rc**2 + dx**2 + dy**2 / q2;
+    gX = -(v0**2) * dx / D;
+    gY = -(v0**2) * (dy / q2) / D;
+    if (muBH > 0) {
+      const GM = muBH * v0**2 * Rc, r2 = dx**2 + dy**2 + EPS_BH**2, s3 = r2 * Math.sqrt(r2);
+      gX -= GM * dx / s3; gY -= GM * dy / s3;
+    }
+    return;
+  }
+  const T = (Rc**2 + dy**2)**0.5;
+  const chi0 = dx - a;
+  const chi1 = dx + a;
+  gX = -1 * v0**2 / (4 * a) * (Math.log(chi1**2 + T**2) - Math.log(chi0**2 + T**2));
+  gY = -1 * dy * v0**2 / (2 * a * T) * (Math.atan2(chi1, T) - Math.atan2(chi0, T));
+}
+
+function Phi(dx, dy, a) {
+  if (galaxy === 'ell') {
+    let P = 0.5 * v0**2 * Math.log(Rc**2 + dx**2 + dy**2 / qEll**2);
+    if (muBH > 0) P -= muBH * v0**2 * Rc / Math.sqrt(dx**2 + dy**2 + EPS_BH**2);
+    return P;
+  }
+  const T = (Rc**2 + dy**2)**0.5;
+  const chi0 = dx - a;
+  const chi1 = dx + a;
+  return v0**2 / (4 * a) * ((chi1 * Math.log(chi1**2 + T**2) + 2 * T * Math.atan2(chi1, T)) - (chi0 * Math.log(chi0**2 + T**2) + 2 * T * Math.atan2(chi0, T)));
+}
+
+function PhiEff(dx, dy, a, Omega) {
+  const R = (dx**2 + dy**2)**0.5;
+  return Phi(dx, dy, a) - 0.5 * Omega**2 * R**2;
+}
+
+// circular angular speed at radius R along the bar's minor axis
+function omegaFor(R, a) {
+  grav(0, R, a);
+  return (-gY / R)**0.5;
+}
+
+function calcOmegaDot(a, aDot, curlyR, Omega, dt) {
+  const aNew = a + aDot * dt;
+  const R_CRNew = curlyR * aNew;
+  const OmegaNew = omegaFor(R_CRNew, aNew);
+  return (OmegaNew - Omega) / dt;
+}
+
+/* Advance an integrator state by n steps. This is the desktop predictPath()
+   loop verbatim (kick-drift-kick with the same fictitious forces), except that
+   the gravitational force at the end of one step is reused at the start of the
+   next — it is evaluated at the same position and bar length, so the numbers
+   are unchanged while the cost drops ~4x. */
+function integrate(s, n) {
+  let px = s.x, py = s.y, vx = s.vx, vy = s.vy;
+  let aP = s.a, Om = s.Om, OmD = s.OmD, th = s.th;
+  let gx, gy;
+  if (s.gOK) { gx = s.gx; gy = s.gy; } else { grav(px, py, aP); gx = gX; gy = gY; }
+  const rotating = rotatingFrame;
+  for (let i = 0; i < n; i++) {
+    let fx = gx + 2 * Om * vy + Om**2 * px + OmD * py;
+    let fy = gy - 2 * Om * vx + Om**2 * py - OmD * px;
+    vx += 0.5 * fx * dt;
+    vy += 0.5 * fy * dt;
+    px += vx * dt;
+    py += vy * dt;
+
+    if (aDot != 0) {
+      OmD = calcOmegaDot(aP, aDot, curlyR, Om, dt);
+      Om = Om + OmD * dt;
+      aP += aDot * dt;
+    }
+    if (!rotating) th += Om * dt;
+
+    grav(px, py, aP); gx = gX; gy = gY;
+    fx = gx + 2 * Om * vy + Om**2 * px + OmD * py;
+    fy = gy - 2 * Om * vx + Om**2 * py - OmD * px;
+    vx += 0.5 * fx * dt;
+    vy += 0.5 * fy * dt;
+  }
+  s.x = px; s.y = py; s.vx = vx; s.vy = vy;
+  s.a = aP; s.Om = Om; s.OmD = OmD; s.th = th;
+  s.gx = gx; s.gy = gy; s.gOK = true;
+  return s;
+}
+
+
+// Integrate n points of the projected orbit, one every `interval` steps.
+function buildPath(s, n, interval) {
+  const x = new Float64Array(n), y = new Float64Array(n), th = new Float64Array(n);
+  for (let k = 0; k < n; k++) {
+    integrate(s, interval);
+    x[k] = s.x; y[k] = s.y; th[k] = s.th;
+  }
+  return { x, y, th, end: s };
+}
+
+/* Elliptical-galaxy orbit stability: follow each start and a copy displaced by
+   0.001 units for t = 8000. Regular orbits stay within ~0.1 units of each other;
+   unstable or chaotic ones separate by hundreds. (No rotation, so Om = 0.) */
+function orbitStability(starts, aVal) {
+  const out = {};
+  for (const st of starts) {
+    const A = { x: st.x, y: st.y, vx: st.vx, vy: st.vy, a: aVal, Om: 0, OmD: 0, th: 0, gOK: false };
+    const B = { ...A, x: st.x + 1e-3, y: st.y + 1e-3 };
+    let sep = 0;
+    for (let i = 0; i < 400 && sep < 5; i++) {
+      integrate(A, 200); integrate(B, 200);
+      sep = Math.max(sep, Math.hypot(A.x - B.x, A.y - B.y));
+    }
+    out[st.key] = sep < 5;
+  }
+  return out;
+}
+</script>
+<script>
+'use strict';
+let R0ell = 3.6 * Rc;     // starting radius for the elliptical orbits
+let a = 3 * Rc;
+let eta = 0;
+let Dt = 1;         // simulated time per tick
+let projTime = 5000;
+
+let R_CR = curlyR * a;
+let Omega = omegaFor(R_CR, a);
+let OmegaDot = 0;
+let theta = 0;      // bar angle (inertial view)
+
+const ship = { x: 0, y: -R_CR, vx: 0, vy: 0, angle: 0, size: 16 };
+
+function shipState() {
+  return { x: ship.x, y: ship.y, vx: ship.vx, vy: ship.vy, a: a, Om: Omega, OmD: OmegaDot, th: theta, gOK: false };
+}
+
+/* ---------- projected orbit (ring buffer) ----------
+   Rebuilt in full whenever something changes (thrust, sliders, toggles).
+   Otherwise each tick drops the point the ship has just reached and
+   integrates one more interval onto the end, instead of re-integrating
+   the whole 50 000-step orbit every frame. */
+const path = { n: 0, head: 0, count: 0, x: null, y: null, th: null, end: null };
+let pathDirty = true;
+
+function pathSize() {
+  const interval = Math.round(Dt / dt);
+  return { interval, n: Math.floor(projTime / dt / interval) };
+}
+function installPath(r) {
+  path.n = r.x.length; path.x = r.x; path.y = r.y; path.th = r.th;
+  path.head = 0; path.count = path.n; path.end = r.end;
+}
+// fallback when no background thread is available: compute on the main thread
+function rebuildPath() {
+  const { interval, n } = pathSize();
+  installPath(buildPath(shipState(), n, interval));
+  pathDirty = false;
+}
+
+/* ---------- background thread for the projected orbit ----------
+   A full rebuild (50 000 steps) takes ~8 ms on a laptop and ~35 ms on a phone,
+   which would drop frames while thrusting. It runs on a Web Worker instead,
+   built from the physics script above, so both threads use the same code.
+   The worker integrates from a snapshot of the ship; by the time the result
+   arrives the ship has moved on a few ticks, so that many points are dropped
+   from the front and the same number added at the end. With no thrust in
+   between this is exact: the path is identical to one computed in place. */
+const WORKER_MAIN = `
+self.onmessage = (e) => {
+  const m = e.data;
+  galaxy = m.galaxy; qEll = m.qEll; muBH = m.muBH; curlyR = m.curlyR; aDot = m.aDot; rotatingFrame = m.rotating;
+  if (m.type === 'path') {
+    const r = buildPath(m.state, m.n, m.interval);
+    self.postMessage({ type: 'path', id: m.id, x: r.x, y: r.y, th: r.th, end: r.end }, [r.x.buffer, r.y.buffer, r.th.buffer]);
+  } else if (m.type === 'stab') {
+    self.postMessage({ type: 'stab', key: m.key, result: orbitStability(m.starts, m.a) });
+  }
+};`;
+let physWorker = null, pathInFlight = false, pathReqId = 0, ticksSinceReq = 0;
+function physicsParams() {
+  return { galaxy, qEll, muBH, curlyR, aDot, rotating: rotatingFrame };
+}
+function stopWorker() {
+  if (physWorker) physWorker.terminate();
+  physWorker = null; pathInFlight = false; pathDirty = true;
+}
+try {
+  const src = document.getElementById('physics').textContent + WORKER_MAIN;
+  physWorker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+  physWorker.onerror = (e) => { e.preventDefault(); stopWorker(); };   // fall back to the main thread
+  physWorker.onmessage = (e) => {
+    const m = e.data;
+    if (m.type === 'stab') { onStability(m.key, m.result); return; }
+    if (m.id !== pathReqId) return;
+    pathInFlight = false;
+    installPath(m);
+    // catch up with the ship, which kept flying while the worker was busy
+    const lag = Math.min(ticksSinceReq, path.n);
+    for (let i = 0; i < lag; i++) advancePath();
+    ticksSinceReq = 0;
+  };
+} catch (_) { physWorker = null; }
+
+function requestPath() {
+  if (!physWorker) { rebuildPath(); return; }
+  const { interval, n } = pathSize();
+  pathDirty = false; pathInFlight = true; ticksSinceReq = 0;
+  physWorker.postMessage({ type: 'path', id: ++pathReqId, state: shipState(), n, interval, ...physicsParams() });
+}
+
+function advancePath() {
+  if (!path.end || path.count === 0) { pathDirty = true; return; }
+  const interval = Math.round(Dt / dt);
+  integrate(path.end, interval);
+  const i = path.head;   // overwrite the oldest slot with the new tail point
+  path.x[i] = path.end.x; path.y[i] = path.end.y; path.th[i] = path.end.th;
+  path.head = (path.head + 1) % path.n;
+}
+
+/* ---------- Lagrange points ----------
+   Stationary points of the effective potential: gravity + centrifugal = 0 for a ship at
+   rest in the rotating frame. L4/L5 sit on the minor axis at exactly R_CR (that is how
+   R_CR and Omega are defined); L3 is the centre; L1/L2 lie on the major axis and are
+   found by bisection. Stability from the linearised equations with Coriolis terms:
+   lambda^4 + (Pxx + Pyy + 4 Omega^2) lambda^2 + Pxx Pyy = 0 (Pxy = 0 on the axes),
+   stable iff both roots for lambda^2 are real and negative. */
+const LP_KEYS = ['L1', 'L2', 'L3', 'L4', 'L5'];
+function majorAxisLagrange() {
+  const f = (x) => { grav(x, 0, a); return gX + Omega**2 * x; };   // net outward force at rest
+  let lo = 1e-3 * R_CR, hi = lo;
+  const step = R_CR / 50;
+  while (f(hi) <= 0 && hi < 20 * R_CR) { lo = hi; hi += step; }
+  for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (f(m) > 0) hi = m; else lo = m; }
+  return (lo + hi) / 2;
+}
+function lagrangePoints() {
+  const xL = majorAxisLagrange();
+  const pts = { L1: { x: xL, y: 0 }, L2: { x: -xL, y: 0 }, L3: { x: 0, y: 0 }, L4: { x: 0, y: R_CR }, L5: { x: 0, y: -R_CR } };
+  const h = 0.5;
+  for (const k of LP_KEYS) {
+    const p = pts[k], P = (u, v) => PhiEff(u, v, a, Omega), c0 = P(p.x, p.y);
+    const Pxx = (P(p.x + h, p.y) - 2 * c0 + P(p.x - h, p.y)) / (h * h);
+    const Pyy = (P(p.x, p.y + h) - 2 * c0 + P(p.x, p.y - h)) / (h * h);
+    const B = Pxx + Pyy + 4 * Omega**2, C = Pxx * Pyy;
+    p.stable = C > 0 && B > 0 && B * B - 4 * C > 0;
+    p.kind = Pxx > 0 && Pyy > 0 ? 'min' : Pxx < 0 && Pyy < 0 ? 'max' : 'saddle';
+  }
+  return pts;
+}
+let LPs = null;
+let startLP = 'L5';
+
+/* ---------- stars ---------- */
+const stars = [];
+const numStars = 2000;
+function makeStars(maxR) {
+  stars.length = 0;
+  for (let i = 0; i < numStars; i++) {
+    stars.push({ radius: Math.random() * maxR, angle: Math.random() * Math.PI * 2 });
+  }
+}
+function starspeed(radius) { return omegaFor(radius, a) - Omega; }
+
+/* ---------- input ---------- */
+const keyIn = { left: false, right: false, up: false, shift: false };
+const touchIn = { left: false, right: false };
+const THRUST_BASE = 0.0005;          // original main-engine acceleration
+const THRUST_MAX = 4 * THRUST_BASE;  // top of the slider
+let throttle = 0;                    // slider position 0..1
+// quadratic response: the bottom of the slider gives fine control
+// (old FINE = 0.0001 is ~22% of the way up, old THRUST = 0.0005 is halfway)
+const throttleAccel = () => THRUST_MAX * throttle * throttle;
+const input = () => ({
+  left: keyIn.left || touchIn.left,
+  right: keyIn.right || touchIn.right,
+  accel: Math.max(throttleAccel(), keyIn.up ? (keyIn.shift ? 0.0001 : THRUST_BASE) : 0),
+});
+let inp = input();
+
+/* ---------- one simulation tick (one desktop animation frame) ---------- */
+function tick() {
+  inp = input();
+  if (inp.left) ship.angle -= 0.075;
+  if (inp.right) ship.angle += 0.075;
+
+  if (inp.accel > 0) {
+    const thrust = inp.accel;
+    ship.vx += thrust * Math.cos(ship.angle) * Dt;
+    ship.vy += thrust * Math.sin(ship.angle) * Dt;
+    pathDirty = true;
+  }
+
+  const s = integrate(shipState(), Math.round(Dt / dt));
+  ship.x = s.x; ship.y = s.y; ship.vx = s.vx; ship.vy = s.vy;
+  Omega = s.Om; OmegaDot = s.OmD;
+
+  a += aDot * Dt;
+  R_CR = curlyR * a;
+
+  if (frameCheckbox.checked) theta = 0;
+  else theta += Omega * Dt;
+
+  if (aDot !== 0) {
+    aSlider.value = a / Rc;
+    aValue.textContent = (a / Rc).toFixed(1);
+  }
+
+  if (pathInFlight) ticksSinceReq++;                       // worker result will catch up
+  else if (orbitCheckbox.checked && !pathDirty) advancePath();
+
+  if (starsCheckbox.checked) {
+    for (const star of stars) star.angle += starspeed(star.radius) * Dt;
+  }
+}
+
+/* =====================================================================
+   VIEW
+   ===================================================================== */
+const canvas = document.getElementById('spaceCanvas');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, dpr = 1, cx = 0, cy = 0;
+let fitScale = 1, userZoom = 1, scale = 1;
+let contourTopY = 0;       // fixes contour levels (top edge of the default view)
+const R_REF = 1.2 * 3 * Rc; // default corotation radius, used to fit the view
+
+const sideMenuMQ = window.matchMedia('(orientation: landscape) and (max-height: 560px)');
+
+// Where the galaxy should be drawn. In flight: fit the L5 region between the top bar
+// and the bottom of the screen. With the menu open: fit all five Lagrange points
+// (and their labels) into the part of the screen the menu leaves free.
+function viewTarget() {
+  const menuEl = document.getElementById('startMenu');
+  const group = document.querySelector('.topbar .group').getBoundingClientRect();
+  if (menuEl && menuEl.classList.contains('show')) {
+    let right = W, bottom = H;
+    const top = Math.max(group.top, 8) + 16;
+    if (sideMenuMQ.matches) right = W - menuEl.offsetWidth; else bottom = H - menuEl.offsetHeight;
+    const pad = 28 / Math.max(fitScale, 0.2);
+    const xExt = galaxy === 'ell' ? R0ell / qEll * 1.05 + pad : Math.max(LPs ? LPs.L1.x : R_CR, R_CR) * 1.12 + pad;
+    const yExt = galaxy === 'ell' ? R0ell * 1.1 : R_CR * 1.12;
+    const fit = Math.min(1.6, (right / 2 - 10) / xExt, ((bottom - top) / 2 - 10) / yExt);
+    return { fit: Math.max(fit, 0.05), cx: right / 2, cy: (top + bottom) / 2 };
+  }
+  // the top bar only matters if its buttons reach the middle of the screen (portrait);
+  // in landscape they sit in the corner, so the galaxy can use the full height
+  const topReserve = group.left < W / 2 + 0.7 * R_REF * Math.min(W, H) / 400
+    ? group.bottom + 6
+    : Math.max(group.top, 8) + 14;
+  const halfX = W / 2 - 8, halfY = H / 2 - topReserve;
+  return { fit: Math.min(1.6, halfX / (R_REF * 1.25), halfY / (R_REF * 1.12)), cx: W / 2, cy: H / 2 };
+}
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+function updateView(el) {
+  const t = viewTarget();
+  const k = el == null || reduceMotion.matches ? 1 : Math.min(1, el / 110);
+  fitScale += (t.fit - fitScale) * k;
+  cx += (t.cx - cx) * k;
+  cy += (t.cy - cy) * k;
+  scale = fitScale * userZoom;
+}
+
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  dpr = Math.min(window.devicePixelRatio || 1, 3);
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  updateView(null);
+  contourTopY = -2.5 * R_REF;   // fixed reference, so contour levels are the same on every screen
+  const maxR = Math.hypot(W, H) / 2 / Math.min(fitScale, viewTarget().fit);
+  if (!stars.length || Math.abs(maxR - starsMaxR) / starsMaxR > 0.25) { makeStars(maxR); starsMaxR = maxR; }
+  contourKey = '';
+}
+let starsMaxR = 1;
+
+/* ---------- effective-potential contours, cached ---------- */
+let contourPts = new Float32Array(0), contourN = 0, contourKey = '', contourTime = 0;
+
+function computeContours() {
+  const cols = 200, rows = 200, levels = 10;
+  // cover the screen at any bar angle: radius = distance from the centre to the farthest corner
+  const L = Math.max(Math.hypot(cx, cy), Math.hypot(W - cx, cy), Math.hypot(cx, H - cy), Math.hypot(W - cx, H - cy)) / scale;
+  const d = 2 * L / cols;
+  const grid = new Float64Array((cols + 1) * (rows + 1));
+  for (let i = 0; i <= cols; i++)
+    for (let j = 0; j <= rows; j++)
+      grid[i * (rows + 1) + j] = PhiEff(-L + i * d, -L + j * d, a, Omega);
+
+  // elliptical: levels span the logarithmic part only, so a black hole adds rings near the centre
+  const minPhi = galaxy === 'ell' ? 0.5 * v0**2 * Math.log(Rc**2) : PhiEff(0, 0, a, Omega);
+  const maxPhi = galaxy === 'ell' ? PhiEff(0, contourTopY, a, Omega)
+    : Math.max(PhiEff(0, contourTopY, a, Omega), PhiEff(0, -R_CR, a, Omega) - 0.001);
+  const deltaPhi = (maxPhi - minPhi) / levels;
+
+  const pts = [];
+  for (let l = 1; l <= levels; l++) {
+    const t = minPhi + l * deltaPhi;
+    for (let i = 0; i < cols; i++) {
+      for (let j = 0; j < rows; j++) {
+        const p00 = grid[i * (rows + 1) + j];
+        const p10 = grid[(i + 1) * (rows + 1) + j];
+        const p01 = grid[i * (rows + 1) + j + 1];
+        if ((p00 < t && p10 > t) || (p00 > t && p10 < t)) {
+          pts.push(-L + i * d + (t - p00) / (p10 - p00) * d, -L + j * d);
+        }
+        if ((p00 < t && p01 > t) || (p00 > t && p01 < t)) {
+          pts.push(-L + i * d, -L + j * d + (t - p00) / (p01 - p00) * d);
+        }
+      }
+    }
+  }
+  contourPts = Float32Array.from(pts);
+  contourN = pts.length / 2;
+}
+
+function maybeContours(now) {
+  const key = [galaxy, qEll, muBH, a.toPrecision(6), Omega.toPrecision(6), R_CR.toPrecision(6), scale.toPrecision(4), W, H, Math.round(cx / 24), Math.round(cy / 24)].join('|');
+  if (key === contourKey) return;
+  // while the bar is evolving (eta != 0) or during a pinch, refresh at most ~6x per second
+  if (contourKey && now - contourTime < 160) return;
+  computeContours();
+  contourKey = key; contourTime = now;
+}
+
+/* ---------- drawing ---------- */
+function toScreen(x, y, th) {
+  const c = Math.cos(th), s = Math.sin(th);
+  return [cx + scale * (x * c - y * s), cy + scale * (x * s + y * c)];
+}
+
+function draw(now) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#000040';
+  ctx.fillRect(0, 0, W, H);
+
+  // world-space transform: centre, scale, rotate into inertial frame
+  const worldT = () => { ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.translate(cx, cy); ctx.scale(scale, scale); ctx.rotate(theta); };
+
+  if (contourCheckbox.checked) {
+    maybeContours(now);
+    worldT();
+    ctx.fillStyle = 'yellow';
+    ctx.beginPath();
+    const r = 1 / scale;
+    for (let k = 0; k < contourN; k++) ctx.rect(contourPts[2 * k] - r, contourPts[2 * k + 1] - r, 2 * r, 2 * r);
+    ctx.fill();
+  }
+
+  if (starsCheckbox.checked) {
+    worldT();
+    ctx.fillStyle = 'white';
+    ctx.beginPath();
+    const r = 1 / scale;
+    for (const st of stars) ctx.rect(st.radius * Math.cos(st.angle) - r, st.radius * Math.sin(st.angle) - r, 2 * r, 2 * r);
+    ctx.fill();
+  }
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  if (orbitCheckbox.checked && path.count) {
+    ctx.strokeStyle = 'cyan';
+    ctx.lineWidth = 1.25;
+    ctx.beginPath();
+    let [sx, sy] = toScreen(ship.x, ship.y, theta);
+    ctx.moveTo(sx, sy);
+    const rot = !frameCheckbox.checked;
+    for (let k = 0; k < path.count; k++) {
+      const i = (path.head + k) % path.n;
+      if (rot) [sx, sy] = toScreen(path.x[i], path.y[i], path.th[i]);
+      else { sx = cx + scale * path.x[i]; sy = cy + scale * path.y[i]; }
+      ctx.lineTo(sx, sy);
+    }
+    ctx.stroke();
+  }
+
+  // Lagrange point markers (barred galaxy only)
+  if (lpCheckbox.checked || menuOpen()) {
+    ctx.font = 'bold 12px Courier, "Courier New", monospace';
+    ctx.textBaseline = 'middle';
+    for (const m of markerPoints()) {
+      const k = m.key;
+      const [mx, my] = toScreen(m.x, m.y, theta);
+      const sel = k === startLP && menuOpen();
+      ctx.strokeStyle = ctx.fillStyle = sel ? '#ffffff' : '#ff9be6';
+      ctx.lineWidth = sel ? 2 : 1.5;
+      ctx.beginPath();
+      ctx.moveTo(mx - 5, my); ctx.lineTo(mx + 5, my); ctx.moveTo(mx, my - 5); ctx.lineTo(mx, my + 5);
+      ctx.stroke();
+      if (sel) { ctx.beginPath(); ctx.arc(mx, my, 13, 0, Math.PI * 2); ctx.stroke(); }
+      // label: outside the bar for L1/L2, beside the point otherwise
+      const left = k === 'L2';
+      ctx.textAlign = left ? 'right' : 'left';
+      ctx.fillText(m.label, left ? mx - 9 : mx + 9, my - 10);
+    }
+    ctx.textAlign = 'left';
+  }
+
+  // ship (fixed on-screen size); heading rotated with the frame so it matches the thrust direction
+  const [px, py] = toScreen(ship.x, ship.y, theta);
+  ctx.translate(px, py);
+  ctx.rotate(ship.angle + theta);
+  const z = ship.size;
+  ctx.fillStyle = 'orange';
+  if (inp.accel > 0) {
+    // flame length grows with thrust (old FINE ~ z, old THRUST ~ 1.25 z, max 2 z)
+    const f = Math.sqrt(inp.accel / THRUST_MAX);
+    ctx.beginPath();
+    ctx.moveTo(-z / 2 - z * (0.35 + 1.15 * f), 0);
+    ctx.lineTo(-z / 2, z / 4);
+    ctx.lineTo(-z / 2, -z / 4);
+    ctx.closePath(); ctx.fill();
+  }
+  if (inp.left) {
+    ctx.beginPath(); ctx.moveTo(z * 3 / 4, z / 2); ctx.lineTo(z, 0); ctx.lineTo(z / 2, 0); ctx.closePath(); ctx.fill();
+  }
+  if (inp.right) {
+    ctx.beginPath(); ctx.moveTo(z * 3 / 4, -z / 2); ctx.lineTo(z, 0); ctx.lineTo(z / 2, 0); ctx.closePath(); ctx.fill();
+  }
+  ctx.fillStyle = 'white';
+  ctx.strokeStyle = 'black';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(z, 0); ctx.lineTo(-z / 2, z / 2); ctx.lineTo(-z / 2, -z / 2); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+}
+
+/* =====================================================================
+   MAIN LOOP — fixed 60 Hz simulation tick, so 90/120 Hz phones fly at
+   the same speed as the 60 Hz desktop version.
+   ===================================================================== */
+const TICK_MS = 1000 / 60;
+let paused = true, last = performance.now(), acc = 0;
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  let el = now - last; last = now;
+  if (el > 250) el = 250;
+  if (!paused) {
+    acc += el;
+    let n = 0;
+    while (acc >= TICK_MS && n < 4) { tick(); acc -= TICK_MS; n++; }
+    if (n === 4) acc = 0;   // slow device: run in slow motion rather than spiral
+  }
+  inp = input();
+  LPs = galaxy === 'bar' ? lagrangePoints() : null;
+  if (menuOpen()) refreshMenu();
+  updateView(el);
+  if (orbitCheckbox.checked && pathDirty && !pathInFlight) requestPath();
+  draw(now);
+}
+
+/* =====================================================================
+   UI wiring
+   ===================================================================== */
+const $ = (id) => document.getElementById(id);
+const curlyRSlider = $('curlyRSlider'), curlyRValue = $('curlyRValue');
+const aSlider = $('aSlider'), aValue = $('aValue');
+const etaSlider = $('etaSlider'), etaValue = $('etaValue');
+const speedSlider = $('speedSlider'), speedValue = $('speedValue');
+const projTimeSlider = $('projTimeSlider'), projTimeValue = $('projTimeValue');
+const frameCheckbox = $('frameCheckbox'), orbitCheckbox = $('orbitCheckbox');
+const contourCheckbox = $('contourCheckbox'), starsCheckbox = $('starsCheckbox'), lpCheckbox = $('lpCheckbox');
+
+curlyRSlider.addEventListener('input', () => {
+  curlyR = parseFloat(curlyRSlider.value);
+  curlyRValue.textContent = curlyR.toFixed(2);
+  R_CR = curlyR * a;
+  Omega = omegaFor(R_CR, a);
+  aDot = v0 * eta / curlyR;
+  OmegaDot = calcOmegaDot(a, aDot, curlyR, Omega, dt);
+  pathDirty = true;
+});
+aSlider.addEventListener('input', () => {
+  a = parseFloat(aSlider.value) * Rc;
+  aValue.textContent = (a / Rc).toFixed(1);
+  R_CR = curlyR * a;
+  Omega = omegaFor(R_CR, a);
+  pathDirty = true;
+});
+etaSlider.addEventListener('input', () => {
+  eta = parseFloat(etaSlider.value);
+  etaValue.textContent = eta.toFixed(3);
+  aDot = v0 * eta / curlyR;
+  OmegaDot = calcOmegaDot(a, aDot, curlyR, Omega, dt);
+  pathDirty = true;
+});
+speedSlider.addEventListener('input', () => {
+  Dt = parseFloat(speedSlider.value);
+  speedValue.textContent = Dt.toFixed(1);
+  pathDirty = true;
+});
+projTimeSlider.addEventListener('input', () => {
+  projTime = parseFloat(projTimeSlider.value);
+  projTimeValue.textContent = projTime.toFixed(0);
+  pathDirty = true;
+});
+const qSlider = $('qSlider'), bhSlider = $('bhSlider'), r0Slider = $('r0Slider');
+function ellChanged(resetIfMenu) {
+  pathDirty = true; contourKey = '';
+  if (resetIfMenu && menuOpen()) resetShip();   // keep the preview on the chosen start
+}
+qSlider.addEventListener('input', () => { qEll = parseFloat(qSlider.value); $('qValue').textContent = qEll.toFixed(2); ellChanged(true); });
+bhSlider.addEventListener('input', () => { muBH = parseFloat(bhSlider.value); $('bhValue').textContent = muBH.toFixed(2); ellChanged(true); });
+r0Slider.addEventListener('input', () => { R0ell = parseFloat(r0Slider.value) * Rc; $('r0Value').textContent = (R0ell / Rc).toFixed(1); ellChanged(true); });
+[frameCheckbox, orbitCheckbox].forEach(cb => cb.addEventListener('change', () => {
+  rotatingFrame = frameCheckbox.checked;
+  pathDirty = true; path.count = 0;
+}));
+rotatingFrame = frameCheckbox.checked;
+
+/* ---------- starting points ---------- */
+const START_OPTIONS = {
+  bar: [
+    { key: 'L1', name: 'L<sub>1</sub>', desc: 'Right end of the bar', launch: 'Launch from L<sub>1</sub>' },
+    { key: 'L2', name: 'L<sub>2</sub>', desc: 'Left end of the bar', launch: 'Launch from L<sub>2</sub>' },
+    { key: 'L3', name: 'L<sub>3</sub>', desc: 'Galactic centre', launch: 'Launch from L<sub>3</sub>' },
+    { key: 'L4', name: 'L<sub>4</sub>', desc: 'Below the bar', launch: 'Launch from L<sub>4</sub>' },
+    { key: 'L5', name: 'L<sub>5</sub>', desc: 'Above the bar', launch: 'Launch from L<sub>5</sub>' },
+  ],
+  ell: [
+    { key: 'loop', name: '&#9711;', desc: 'Loop orbit', launch: 'Launch on a loop orbit' },
+    { key: 'box', name: '&#9634;', desc: 'Box orbit', launch: 'Launch on a box orbit' },
+    { key: 'long', name: '&#8596;', desc: 'Long-axis orbit', launch: 'Launch on the long axis' },
+    { key: 'short', name: '&#8597;', desc: 'Short-axis orbit', launch: 'Launch on the short axis' },
+  ],
+};
+const DEFAULT_START = { bar: 'L5', ell: 'loop' };
+
+// initial state for each elliptical start: released at rest, except the loop orbit,
+// which is launched from the short axis at the local circular speed
+function ellStart(k) {
+  const R = R0ell;
+  if (k === 'loop') { grav(0, -R, a); return { x: 0, y: -R, vx: Math.sqrt(R * Math.abs(gY)), vy: 0 }; }
+  if (k === 'box') return { x: R * Math.cos(0.5), y: -R * qEll * Math.sin(0.5), vx: 0, vy: 0 };
+  if (k === 'long') return { x: R, y: 0, vx: 0, vy: 0 };
+  return { x: 0, y: R * qEll, vx: 0, vy: 0 };   // short axis, below the centre
+}
+function startState(k) {
+  if (galaxy === 'ell') return ellStart(k);
+  const p = (LPs = lagrangePoints())[k];
+  return { x: p.x, y: p.y, vx: 0, vy: 0 };
+}
+// only the Lagrange points are real, fixed points worth marking; the elliptical's
+// orbit release points are not, so that galaxy has no markers
+function markerPoints() {
+  if (galaxy !== 'bar' || !LPs) return [];
+  return LP_KEYS.map(k => ({ key: k, label: k, x: LPs[k].x, y: LPs[k].y }));
+}
+function resetShip() {
+  const st = startState(startLP);
+  ship.x = st.x; ship.y = st.y; ship.vx = st.vx; ship.vy = st.vy; ship.angle = 0;
+  pathDirty = true; path.count = 0;
+}
+
+// Orbit stability for the elliptical starts (orbitStability() in the physics script),
+// run on the background thread when available so the menu never stutters.
+let ellStab = {}, ellStabKey = '', ellStabTimer = 0;
+const ellKey = () => [qEll, muBH, R0ell].join('|');
+function onStability(key, result) { if (key === ellStabKey) ellStab = result; }
+function scheduleEllStability() {
+  const key = ellKey();
+  if (key === ellStabKey) return;
+  ellStabKey = key; ellStab = {};
+  clearTimeout(ellStabTimer);
+  ellStabTimer = setTimeout(() => {
+    if (galaxy !== 'ell' || key !== ellKey()) return;
+    const starts = START_OPTIONS.ell.map(o => ({ key: o.key, ...ellStart(o.key) }));
+    if (physWorker) physWorker.postMessage({ type: 'stab', key, starts, a, ...physicsParams() });
+    else onStability(key, orbitStability(starts, a));
+  }, 250);
+}
+
+function setGalaxy(g) {
+  galaxy = g;
+  document.body.dataset.galaxy = g;
+  theta = 0;
+  if (g === 'ell') {
+    Omega = 0; OmegaDot = 0; aDot = 0;
+  } else {
+    R_CR = curlyR * a;
+    Omega = omegaFor(R_CR, a);
+    aDot = v0 * eta / curlyR;
+    OmegaDot = calcOmegaDot(a, aDot, curlyR, Omega, dt);
+  }
+  contourKey = '';
+  LPs = g === 'bar' ? lagrangePoints() : null;
+  buildStartList();
+  selectLP(DEFAULT_START[g]);
+}
+
+/* ---------- overlays & sheet ---------- */
+const instructionScreen = $('instructionScreen'), aboutScreen = $('aboutScreen'), sheet = $('settingsSheet');
+function anyOverlay() { return instructionScreen.classList.contains('show') || aboutScreen.classList.contains('show'); }
+function showOverlay(el) { closeSheet(); el.classList.add('show'); el.scrollTop = 0; paused = true; }
+function resumeClock() { paused = false; last = performance.now(); acc = 0; requestWakeLock(); }
+function hideOverlays() {
+  instructionScreen.classList.remove('show'); aboutScreen.classList.remove('show');
+  if (menuOpen()) return;   // opened from the menu: go back to it, still paused
+  resumeClock();
+}
+
+/* ---------- start menu ---------- */
+const menuEl = $('startMenu'), lpHint = $('lpHint'), launchBtn = $('launchBtn'), resumeBtn = $('resumeBtn');
+const lpList = menuEl.querySelector('.lp-list');
+let lpButtons = [];
+function buildStartList() {
+  lpList.innerHTML = START_OPTIONS[galaxy].map(o =>
+    `<button class="lp" role="radio" aria-checked="false" data-lp="${o.key}"><span class="lp-name">${o.name}</span><span class="lp-desc">${o.desc}</span><span class="chip"></span></button>`).join('');
+  lpButtons = [...lpList.querySelectorAll('.lp')];
+  lpButtons.forEach(b => b.addEventListener('click', () => selectLP(b.dataset.lp)));
+  lpList.setAttribute('aria-label', galaxy === 'bar' ? 'Starting Lagrange point' : 'Starting orbit');
+  $('menuIntro').innerHTML = galaxy === 'bar'
+    ? 'Choose where the <strong>RSS <i>Lynden-Bell</i></strong> starts. At a Lagrange point the ship can sit still in the frame that rotates with the bar.'
+    : 'A non-rotating elliptical galaxy. Choose a starting orbit for the <strong>RSS <i>Lynden-Bell</i></strong>; the cyan line shows where it goes.';
+  for (const b of galaxyButtons) b.setAttribute('aria-checked', String(b.dataset.galaxy === galaxy));
+}
+let savedFlight = null;   // ship state when the menu was opened mid-flight
+function menuOpen() { return menuEl.classList.contains('show'); }
+const ELL_HINTS = {
+  loop: 'Launched from the short axis at the local circular speed: it circulates the centre in one direction and never passes through it.',
+  box: 'Released at rest away from the axes. With no angular momentum it swings back and forth through the centre, filling a box-shaped region.',
+  long: 'Released at rest on the long axis: it oscillates through the centre along that axis.',
+  short: 'Released at rest on the short axis: it oscillates through the centre along that axis.',
+};
+const HINTS = {
+  saddle: 'A saddle point of the effective potential: without thrust the ship soon drifts away.',
+  min: 'The lowest point of the effective potential: a nudged ship just oscillates about it.',
+  max: 'A peak of the effective potential, held stable by the Coriolis force: nudged ships trace banana-shaped orbits around it.',
+  maxUnstable: 'A peak of the effective potential. With these bar settings the Coriolis force can no longer hold the ship here.',
+  minUnstable: 'The lowest point of the effective potential, but with these bar settings the Coriolis coupling makes it unstable.',
+};
+function setChip(chip, stable) {
+  const label = stable === undefined ? '\u2026' : stable ? 'Stable' : 'Unstable';
+  if (chip.textContent !== label) { chip.textContent = label; chip.className = 'chip' + (stable === undefined ? '' : stable ? ' stable' : ' unstable'); }
+}
+function refreshMenu() {
+  let hint;
+  if (galaxy === 'ell') {
+    scheduleEllStability();
+    for (const b of lpButtons) setChip(b.querySelector('.chip'), ellStab[b.dataset.lp]);
+    const st = ellStab[startLP];
+    hint = ELL_HINTS[startLP] + (st === undefined ? '' : st
+      ? ' Nearby orbits stay close to it, so it is stable.'
+      : ' Nearby orbits pull away from it, so it soon turns into something else.');
+  } else {
+    for (const b of lpButtons) setChip(b.querySelector('.chip'), LPs[b.dataset.lp].stable);
+    const p = LPs[startLP];
+    hint = p.kind === 'saddle' ? HINTS.saddle
+      : p.kind === 'min' ? (p.stable ? HINTS.min : HINTS.minUnstable)
+      : (p.stable ? HINTS.max : HINTS.maxUnstable);
+  }
+  if (lpHint.textContent !== hint) lpHint.textContent = hint;
+}
+function selectLP(k) {
+  startLP = k;
+  for (const b of lpButtons) b.setAttribute('aria-checked', String(b.dataset.lp === k));
+  launchBtn.innerHTML = START_OPTIONS[galaxy].find(o => o.key === k).launch;
+  resetShip();            // preview: the ship jumps to the chosen point
+  refreshMenu();
+}
+function openMenu() {
+  closeSheet();
+  if (!menuOpen()) savedFlight = { ...ship };
+  menuEl.classList.add('show'); document.body.classList.add('menu-open');
+  resumeBtn.hidden = false;
+  paused = true;
+  LPs = galaxy === 'bar' ? lagrangePoints() : null; refreshMenu();
+}
+function closeMenu() {
+  menuEl.classList.remove('show'); document.body.classList.remove('menu-open');
+  closeSheet();
+}
+function launch() { resetShip(); closeMenu(); resumeClock(); }
+function resumeFlight() { if (savedFlight) Object.assign(ship, savedFlight); pathDirty = true; path.count = 0; closeMenu(); resumeClock(); }
+launchBtn.addEventListener('click', launch);
+resumeBtn.addEventListener('click', resumeFlight);
+$('menuHelp').addEventListener('click', () => { instructionScreen.classList.add('show'); instructionScreen.scrollTop = 0; });
+$('menuAbout').addEventListener('click', () => { aboutScreen.classList.add('show'); aboutScreen.scrollTop = 0; });
+$('menuSettings').addEventListener('click', () => openSheet());
+$('menuBtn').addEventListener('click', openMenu);
+// arrow keys move between points inside the radio group
+lpList.addEventListener('keydown', (e) => {
+  const keys = START_OPTIONS[galaxy].map(o => o.key), n = keys.length, i = keys.indexOf(startLP);
+  let j = -1;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowRight') j = (i + 1) % n;
+  if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') j = (i + n - 1) % n;
+  if (j >= 0) { e.preventDefault(); e.stopPropagation(); selectLP(keys[j]); lpButtons[j].focus(); }
+});
+const galaxyButtons = [...document.querySelectorAll('.galaxy-pick button')];
+galaxyButtons.forEach(b => b.addEventListener('click', () => { if (b.dataset.galaxy !== galaxy) setGalaxy(b.dataset.galaxy); }));
+function openSheet() { sheet.classList.add('open'); sheet.setAttribute('aria-hidden', 'false'); }
+function closeSheet() { sheet.classList.remove('open'); sheet.setAttribute('aria-hidden', 'true'); }
+
+$('startBtn').addEventListener('click', hideOverlays);
+$('aboutClose').addEventListener('click', hideOverlays);
+$('resetBtn').addEventListener('click', resetShip);
+$('settingsBtn').addEventListener('click', () => sheet.classList.contains('open') ? closeSheet() : openSheet());
+$('closeSettings').addEventListener('click', closeSheet);
+$('zoomResetBtn').addEventListener('click', () => { userZoom = 1; scale = fitScale; });
+
+/* ---------- hold-to-fire touch buttons (multi-touch safe) ---------- */
+function bindHold(el, key) {
+  const ids = new Set();
+  const sync = () => { touchIn[key] = ids.size > 0; el.classList.toggle('active', touchIn[key]); };
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    ids.add(e.pointerId);
+    try { el.setPointerCapture(e.pointerId); } catch (_) {}
+    sync();
+  });
+  for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    el.addEventListener(t, (e) => { ids.delete(e.pointerId); sync(); });
+  }
+}
+bindHold($('btnLeft'), 'left');
+bindHold($('btnRight'), 'right');
+
+/* ---------- thrust slider ---------- */
+const thrEl = $('throttle'), thrFill = $('throttleFill'), thrKnob = $('throttleKnob'), thrRead = $('throttleRead');
+let thrPointer = null;
+function setThrottle(v) {
+  throttle = Math.min(1, Math.max(0, v));
+  const h = thrEl.clientHeight, k = thrKnob.offsetHeight;
+  thrKnob.style.transform = `translateY(${-throttle * (h - k - 8)}px)`;
+  thrFill.style.height = `${throttle * 100}%`;
+  const mult = 4 * throttle * throttle;
+  thrRead.textContent = mult.toFixed(1) + '\u00d7';
+  thrEl.setAttribute('aria-valuenow', mult.toFixed(1));
+  thrEl.classList.toggle('active', throttle > 0);
+}
+function throttleFromEvent(e) {
+  const r = thrEl.getBoundingClientRect(), k = thrKnob.offsetHeight;
+  // knob centre follows the finger; a small dead zone at the bottom means "off"
+  const v = (r.bottom - 4 - k / 2 - e.clientY) / (r.height - 8 - k);
+  return v < 0.03 ? 0 : v;
+}
+thrEl.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  thrPointer = e.pointerId;
+  try { thrEl.setPointerCapture(e.pointerId); } catch (_) {}
+  thrEl.classList.remove('release');
+  setThrottle(throttleFromEvent(e));
+});
+thrEl.addEventListener('pointermove', (e) => { if (e.pointerId === thrPointer) setThrottle(throttleFromEvent(e)); });
+for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+  thrEl.addEventListener(t, (e) => {
+    if (e.pointerId !== thrPointer) return;
+    thrPointer = null;
+    thrEl.classList.add('release');
+    setThrottle(0);
+  });
+}
+// notches at 1x (the original engine), 2x and 3x, aligned with the knob centre
+function placeTicks() {
+  const h = thrEl.clientHeight, k = thrKnob.offsetHeight;
+  document.querySelectorAll('#throttleTicks i').forEach(t => {
+    const f = Math.sqrt(+t.dataset.mult / 4);
+    t.style.bottom = `${4 + k / 2 + f * (h - k - 8)}px`;
+  });
+}
+placeTicks();
+window.addEventListener('resize', () => { placeTicks(); setThrottle(throttle); });
+
+/* ---------- keyboard (desktop / tablets with keyboards) ---------- */
+window.addEventListener('keydown', (e) => {
+  if (anyOverlay()) { if (!e.repeat) hideOverlays(); return; }
+  if (menuOpen()) {
+    if (sheet.classList.contains('open')) { if (e.key === 'Escape') closeSheet(); return; }
+    const opts = START_OPTIONS[galaxy];
+    if (e.key >= '1' && e.key <= String(opts.length)) selectLP(opts[+e.key - 1].key);
+    else if (e.key === 'Enter' && !(e.target instanceof HTMLButtonElement)) launch();
+    else if (e.key === 'Escape' && !resumeBtn.hidden) resumeFlight();
+    else if (e.key === 'i' || e.key === 'I') $('menuHelp').click();
+    else if (e.key === 'j' || e.key === 'J') $('menuAbout').click();
+    return;
+  }
+  switch (e.key) {
+    case 'm': case 'M': openMenu(); break;
+    case 'ArrowLeft': keyIn.left = true; e.preventDefault(); break;
+    case 'ArrowRight': keyIn.right = true; e.preventDefault(); break;
+    case 'ArrowUp': keyIn.up = true; e.preventDefault(); break;
+    case 'Shift': keyIn.shift = true; break;
+    case 'i': case 'I': showOverlay(instructionScreen); break;
+    case 'j': case 'J': showOverlay(aboutScreen); break;
+    case 'r': case 'R': resetShip(); break;
+    case 'Escape': closeSheet(); break;
+  }
+});
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'ArrowLeft') keyIn.left = false;
+  if (e.key === 'ArrowRight') keyIn.right = false;
+  if (e.key === 'ArrowUp') keyIn.up = false;
+  if (e.key === 'Shift') keyIn.shift = false;
+});
+window.addEventListener('blur', () => { Object.keys(keyIn).forEach(k => keyIn[k] = false); });
+
+/* ---------- pinch zoom / double-tap / wheel on the sky ---------- */
+const pointers = new Map();
+let pinchStart = null, lastTap = 0;
+canvas.addEventListener('pointerdown', (e) => {
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size === 2) {
+    const [p, q] = [...pointers.values()];
+    pinchStart = { d: Math.hypot(p.x - q.x, p.y - q.y), z: userZoom };
+  } else if (pointers.size === 1) {
+    if (menuOpen()) {
+      let best = null, bd = 32;
+      for (const m of markerPoints()) {
+        const [mx, my] = toScreen(m.x, m.y, theta);
+        const d = Math.hypot(mx - e.clientX, my - e.clientY);
+        if (d < bd) { bd = d; best = m.key; }
+      }
+      if (best) { selectLP(best); return; }
+    }
+    if (e.timeStamp - lastTap < 300) { userZoom = 1; scale = fitScale; }
+    lastTap = e.timeStamp;
+    if (sheet.classList.contains('open')) closeSheet();
+  }
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinchStart && pointers.size === 2) {
+    const [p, q] = [...pointers.values()];
+    const d = Math.hypot(p.x - q.x, p.y - q.y);
+    userZoom = Math.min(6, Math.max(0.3, pinchStart.z * d / pinchStart.d));
+    scale = fitScale * userZoom;
+  }
+});
+const endPointer = (e) => { pointers.delete(e.pointerId); if (pointers.size < 2) pinchStart = null; };
+canvas.addEventListener('pointerup', endPointer);
+canvas.addEventListener('pointercancel', endPointer);
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  userZoom = Math.min(6, Math.max(0.3, userZoom * Math.exp(-e.deltaY * 0.0015)));
+  scale = fitScale * userZoom;
+}, { passive: false });
+
+document.addEventListener('contextmenu', (e) => e.preventDefault());
+document.addEventListener('gesturestart', (e) => e.preventDefault()); // iOS Safari page zoom
+
+/* ---------- lifecycle ---------- */
+let wakeLock = null;
+async function requestWakeLock() {
+  try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch (_) {}
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { Object.keys(touchIn).forEach(k => touchIn[k] = false); thrPointer = null; setThrottle(0); document.querySelectorAll('.ctl.active').forEach(b => b.classList.remove('active')); }
+  else { last = performance.now(); acc = 0; if (!paused) requestWakeLock(); }
+});
+
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 200));
+document.body.dataset.galaxy = galaxy;
+buildStartList();
+selectLP(startLP);
+resize();
+requestAnimationFrame((t) => { last = t; frame(t); });
+
+/* ---------- offline support (PWA only; native builds bundle the files) ---------- */
+if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !window.Capacitor) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+</script>
+</body>
+</html>
