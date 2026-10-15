@@ -1,0 +1,16 @@
+{
+  "name": "Galactic Flight Simulator",
+  "short_name": "Galactic Flight",
+  "description": "Fly the RSS Lynden-Bell through a rotating barred galaxy potential.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#000040",
+  "theme_color": "#000040",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
